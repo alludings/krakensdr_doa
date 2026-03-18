@@ -23,6 +23,7 @@ import json
 import logging
 import math
 import os
+import tempfile
 
 # Import built-in modules
 import threading
@@ -80,6 +81,26 @@ DEFAULT_ROOT_MUSIC_STD_DEGREES = 1
 
 NEAR_ZERO = 1e-15
 
+LIVE_DOA_PATH = os.path.join(shared_path, "live_doa.json")
+
+def write_live_doa(bearing: float, confidence: float, power: float) -> None:
+    payload = {
+        "bearing": float(bearing),
+        "confidence": float(confidence),
+        "power": float(power),
+        "timestamp": int(time.time()),
+    }
+
+    directory = os.path.dirname(LIVE_DOA_PATH)
+    os.makedirs(directory, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile("w", dir=directory, delete=False) as tmp:
+        json.dump(payload, tmp)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        temp_name = tmp.name
+
+    os.replace(temp_name, LIVE_DOA_PATH)
 
 class SignalProcessor(threading.Thread):
     def __init__(self, data_que, module_receiver: ReceiverRTLSDR, logging_level=10):
@@ -629,6 +650,13 @@ class SignalProcessor(threading.Thread):
                                     self.max_power_level_list.append(np.maximum(-100, max_amplitude))
                                     self.freq_list.append(write_freq)
                                     self.doa_result_log_list.append(doa_result_log)
+
+                                    if i == self.output_vfo or self.output_vfo < 0:
+                                        write_live_doa(
+                                            bearing=theta_0,
+                                            confidence=np.max(conf_val),
+                                            power=np.maximum(-100, max_amplitude),
+                                        )
 
                                     if self.vfo_demod_modes[i] or self.vfo_iq_enabled[i]:
                                         if theta_0 not in self.vfo_theta_channel[i]:
